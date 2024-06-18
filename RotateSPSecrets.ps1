@@ -1,0 +1,45 @@
+param (
+    [Parameter(Mandatory = $true)]
+    [string] $subscriptionName,
+
+    [Parameter(Mandatory = $true)]
+    [string] $resourceGroupName
+)
+
+# Set the subscription context
+Select-AzSubscription -Subscription $subscriptionName
+
+# Get all Key Vaults in the specified resource group
+$keyVaults = Get-AzKeyVault -ResourceGroupName $resourceGroupName
+
+foreach ($keyVault in $keyVaults) {
+    # Get the key vault name
+    $keyVaultName = $keyVault.VaultName
+
+    # Check if the Key Vault contains the secret named 'ccid'
+    try {
+        $ccidSecret = Get-AzKeyVaultSecret -VaultName $keyVaultName -Name "ccid"
+        if ($ccidSecret) {
+            $clientId = ConvertFrom-SecureString -SecureString $ccidSecret.SecretValue -AsPlainText
+            $servicePrincipal = Get-AzADServicePrincipal -Filter "appId eq '$clientId'"
+            
+            if ($servicePrincipal) {
+                # Delete all existing password credentials for the service principal
+                Remove-AzADSpCredential -ObjectId $servicePrincipal.Id
+                
+                # Generate a new password for the service principal that expires in 7 days
+                $newClientSecret = New-AzADSpCredential -ObjectId $servicePrincipal.Id -EndDate (Get-Date).AddDays(7)
+                
+                # Store the new password in the Key Vault under the key 'secret'
+                Set-AzKeyVaultSecret -VaultName $keyVaultName -Name "secret" -SecretValue (ConvertTo-SecureString -String $newClientSecret.SecretText -AsPlainText -Force)
+
+                Write-Output "Updated secret for Key Vault: $keyVaultName"
+            }
+        }
+    }
+    catch {
+        Write-Output "Secret 'ccid' not found in Key Vault: $keyVaultName"
+    }
+}
+
+Write-Output "Script execution completed."
