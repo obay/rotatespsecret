@@ -3,20 +3,37 @@ param (
     [string] $subscriptionName,
 
     [Parameter(Mandatory = $true)]
-    [string] $resourceGroupName
+    [string] $resourceGroupName,
+
+    [Parameter(Mandatory = $true)]
+    [string] $tenantId,
+
+    [Parameter(Mandatory = $true)]
+    [string] $spName,
+
+    [Parameter(Mandatory = $true)]
+    [string] $spPassword
 )
 
-# Set the subscription context
-Select-AzSubscription -Subscription $subscriptionName
+# Set the subscription context ####################################################################
+$securePassword = ConvertTo-SecureString -String $spPassword -AsPlainText -Force
+$credential = New-Object -TypeName "System.Management.Automation.PSCredential" -ArgumentList $spName, $securePassword
 
-# Get all Key Vaults in the specified resource group
+Connect-AzAccount -ServicePrincipal -TenantId $tenantId -Credential $credential
+
+Select-AzSubscription -Subscription $subscriptionName
+# Get all Key Vaults in the specified resource group ##############################################
 $keyVaults = Get-AzKeyVault -ResourceGroupName $resourceGroupName
 
 foreach ($keyVault in $keyVaults) {
     # Get the key vault name
     $keyVaultName = $keyVault.VaultName
+    # Grant myself access to the Key Vault to Get, List and Set secrets ###########################
+    Write-Output "Granting access to Key Vault: $keyVaultName"
 
-    # Check if the Key Vault contains the secret named 'ccid'
+    Set-AzKeyVaultAccessPolicy -VaultName $keyVaultName -ResourceGroupName $resourceGroupName -PermissionsToSecrets Get, List, Set -ServicePrincipalName $spName
+    Write-Output "Access granted to Key Vault: $keyVaultName"
+    # Check if the Key Vault contains the secret named 'ccid' #####################################
     try {
         $ccidSecret = Get-AzKeyVaultSecret -VaultName $keyVaultName -Name "ccid"
         if ($ccidSecret) {
